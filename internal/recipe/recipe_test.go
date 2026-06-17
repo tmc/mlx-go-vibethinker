@@ -77,17 +77,38 @@ func TestPipeline3BEndToEnd(t *testing.T) {
 	if _, err := os.Stat(out.Dir); err != nil {
 		t.Fatalf("final checkpoint %q missing: %v", out.Dir, err)
 	}
-	// The last stage is offline self-distillation.
+	// The terminal stage is Instruct RL (DESIGN §4: … self-distill -> Instruct RL).
 	last := out.History[len(out.History)-1]
-	if last.Stage != "distill" {
-		t.Fatalf("final stage = %q, want distill", last.Stage)
+	if last.Stage != "instruct-rl" {
+		t.Fatalf("final stage = %q, want instruct-rl", last.Stage)
 	}
-	// Both curriculum SFT stages and all three MGPO domains ran.
-	for _, name := range []string{"sft-broad", "sft-hard", "mgpo-math", "mgpo-code", "mgpo-stem", "distill"} {
+	// Both curriculum SFT stages, all three MGPO domains, Long2Short math,
+	// distillation, and Instruct RL ran — the full DESIGN §4 ordering.
+	for _, name := range []string{"sft-broad", "sft-hard", "mgpo-math", "long2short", "mgpo-code", "mgpo-stem", "distill", "instruct-rl"} {
 		if !hasStage(out, name) {
 			t.Fatalf("3B history missing stage %q: %+v", name, stageNames(out))
 		}
 	}
+	// Long2Short must sit between MGPO-math and MGPO-code (DESIGN §4 ordering).
+	if i, j, k := stageIndex(out, "mgpo-math"), stageIndex(out, "long2short"), stageIndex(out, "mgpo-code"); !(i < j && j < k) {
+		t.Fatalf("Long2Short out of order: mgpo-math=%d long2short=%d mgpo-code=%d", i, j, k)
+	}
+	// The Long2Short stage's provenance records the zero-sum reshape.
+	assertProvenanceContains(t, out, "long2short", "zero-sum")
+	// Instruct RL runs after distillation (DESIGN §4 terminal ordering).
+	if d, ir := stageIndex(out, "distill"), stageIndex(out, "instruct-rl"); !(d < ir) {
+		t.Fatalf("Instruct RL out of order: distill=%d instruct-rl=%d", d, ir)
+	}
+	assertProvenanceContains(t, out, "instruct-rl", "rule+rubric")
+}
+
+func stageIndex(c *ssp.Checkpoint, stage string) int {
+	for i, p := range c.History {
+		if p.Stage == stage {
+			return i
+		}
+	}
+	return -1
 }
 
 func assertProvenanceContains(t *testing.T, c *ssp.Checkpoint, stage, noteSub string) {

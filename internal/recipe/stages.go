@@ -14,7 +14,9 @@ import (
 	"github.com/tmc/mlx-go/mlx"
 
 	"github.com/tmc/mlx-go-vibethinker/distill"
+	"github.com/tmc/mlx-go-vibethinker/instruct"
 	"github.com/tmc/mlx-go-vibethinker/internal/toymodel"
+	"github.com/tmc/mlx-go-vibethinker/signal/long2short"
 	"github.com/tmc/mlx-go-vibethinker/signal/mgpo"
 	"github.com/tmc/mlx-go-vibethinker/spectrum/fuse"
 	"github.com/tmc/mlx-go-vibethinker/spectrum/probe"
@@ -216,6 +218,91 @@ func (t *Toy) DistillStage(name string, traces []string) ssp.Stage {
 			return nil, fmt.Errorf("recipe: %s: save: %w", name, err)
 		}
 		return ssp.Derive(in, name, out, fmt.Sprintf("distilled over %d traces", len(scored))), nil
+	}}
+}
+
+// Long2ShortStage runs the Long2Short math-RL reshaping: it builds a toy
+// rollout group with correct traces of differing lengths, applies the real
+// zero-sum brevity reshape, verifies the reshape is zero-sum over the correct
+// set (the group baseline is preserved), and writes a checkpoint. lengths are
+// the token lengths of the correct traces; an incorrect trace is included to
+// confirm it is untouched.
+func (t *Toy) Long2ShortStage(name string) ssp.Stage {
+	return ssp.StageFunc{StageName: name, Fn: func(ctx context.Context, in *ssp.Checkpoint) (*ssp.Checkpoint, error) {
+		if err := t.maybeLoad(in); err != nil {
+			return nil, err
+		}
+		traces := []long2short.Trace{
+			{Reward: 1, Length: 40, Correct: true},
+			{Reward: 1, Length: 120, Correct: true},
+			{Reward: 1, Length: 80, Correct: true},
+			{Reward: 0, Length: 30, Correct: false},
+		}
+		reshaped, err := long2short.Reshape(traces, long2short.DefaultLambda)
+		if err != nil {
+			return nil, fmt.Errorf("recipe: %s: reshape: %w", name, err)
+		}
+		// Verify the brevity shift is zero-sum over the correct set, so the
+		// group baseline is unchanged (the Long2Short invariant).
+		var delta float64
+		for i, tr := range traces {
+			if tr.Correct {
+				delta += reshaped[i] - tr.Reward
+			}
+		}
+		if math.Abs(delta) > 1e-9 {
+			return nil, fmt.Errorf("recipe: %s: reshape not zero-sum over correct set: Δ=%v", name, delta)
+		}
+		out := filepath.Join(t.Dir, name+".safetensors")
+		if err := toymodel.Save(t.Model, out); err != nil {
+			return nil, fmt.Errorf("recipe: %s: save: %w", name, err)
+		}
+		return ssp.Derive(in, name, out, fmt.Sprintf("long2short reshape zero-sum (Δ=%.2g) λ=%.1f", delta, long2short.DefaultLambda)), nil
+	}}
+}
+
+// InstructStage runs the Instruct RL reward composition: it builds a Composer
+// that routes explicit-constraint prompts to rule validators and open-ended
+// prompts to a (fake) rubric reward, scores a toy instruction set through that
+// composed rl.Environment, verifies the rewards are finite and in range, and
+// writes a checkpoint. This exercises the real rule + rubric composition that a
+// real Instruct RL run optimizes under the MGPO/GRPO framework.
+func (t *Toy) InstructStage(name string) ssp.Stage {
+	return ssp.StageFunc{StageName: name, Fn: func(ctx context.Context, in *ssp.Checkpoint) (*ssp.Checkpoint, error) {
+		if err := t.maybeLoad(in); err != nil {
+			return nil, err
+		}
+		// A rubric reward model is gated; the toy stage uses a fixed-score fake.
+		rubric := rl.EnvFromFunc(func(prompt, completion string) (float64, error) { return 0.6, nil })
+		router := instruct.RouterFunc(func(prompt string) (instruct.PromptKind, []instruct.Rule) {
+			if prompt == "open" {
+				return instruct.OpenEnded, nil
+			}
+			return instruct.ExplicitConstraint, []instruct.Rule{instruct.MustContain{Keywords: []string{"ok"}}}
+		})
+		comp, err := instruct.NewComposer(router, rubric)
+		if err != nil {
+			return nil, fmt.Errorf("recipe: %s: composer: %w", name, err)
+		}
+		cases := []struct{ prompt, completion string }{
+			{"constrained", "this is ok"}, // rule satisfied -> 1
+			{"constrained", "nope"},       // rule violated -> 0
+			{"open", "anything"},          // rubric -> 0.6
+		}
+		for i, c := range cases {
+			r, err := comp.Score(ctx, c.prompt, c.completion)
+			if err != nil {
+				return nil, fmt.Errorf("recipe: %s: score case %d: %w", name, i, err)
+			}
+			if math.IsNaN(r) || r < 0 || r > 1 {
+				return nil, fmt.Errorf("recipe: %s: reward out of range: %v", name, r)
+			}
+		}
+		out := filepath.Join(t.Dir, name+".safetensors")
+		if err := toymodel.Save(t.Model, out); err != nil {
+			return nil, fmt.Errorf("recipe: %s: save: %w", name, err)
+		}
+		return ssp.Derive(in, name, out, fmt.Sprintf("instruct rl over %d prompts (rule+rubric)", len(cases))), nil
 	}}
 }
 

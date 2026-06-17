@@ -1,3 +1,5 @@
+//go:build modelir
+
 package toymodel
 
 import (

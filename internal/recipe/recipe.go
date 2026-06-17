@@ -35,8 +35,11 @@ func (t *Toy) Pipeline15B() *ssp.Pipeline {
 }
 
 // Pipeline3B builds the toy 3B recipe: two-stage curriculum SFT (each with probe
-// + fuse), MGPO math, Long2Short is exercised in the signal package tests, MGPO
-// code, MGPO STEM, then offline self-distillation.
+// + fuse), then MGPO math, Long2Short math, MGPO code, MGPO STEM, offline
+// self-distillation, and Instruct RL — the full DESIGN §4 ordering. The real 3B
+// uses a single 64K context window (the paper found progressive truncation hurt
+// the stronger 3B init); that window size is a gated real-run detail, not
+// exercised on the CPU toy path.
 func (t *Toy) Pipeline3B() *ssp.Pipeline {
 	return &ssp.Pipeline{
 		Name: "vibethinker-3b",
@@ -48,9 +51,11 @@ func (t *Toy) Pipeline3B() *ssp.Pipeline {
 			t.ProbeStage("probe-hard"),
 			t.FuseStage("fuse-hard", 4),
 			t.MGPOStage("mgpo-math", "solve x", []float64{1, 0, 1, 1}, 1.0),
+			t.Long2ShortStage("long2short"),
 			t.MGPOStage("mgpo-code", "write fn", []float64{1, 1, 1, 0}, 1.0),
 			t.MGPOStage("mgpo-stem", "explain", []float64{1, 0, 0, 0}, 1.0),
 			t.DistillStage("distill", toyTraces),
+			t.InstructStage("instruct-rl"),
 		},
 	}
 }
