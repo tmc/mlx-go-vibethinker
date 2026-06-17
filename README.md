@@ -40,11 +40,34 @@ Source papers:
 
 ## Status
 
-Pre-implementation. [`DESIGN.md`](./DESIGN.md) is the specification and the
-contract this reproduction is held to; it records the faithful mapping of every
-paper step onto a concrete mlx-go primitive and marks each external dependency
-as an explicit gate. The design has been cross-checked against the papers and
-the mlx-go reference sources.
+Implemented. Every stage in [`DESIGN.md`](./DESIGN.md) is built on the mlx-go
+stack, every §5 correctness invariant has a passing property test, and the full
+1.5B and 3B recipes run end to end on a toy config (a tiny 2-layer Qwen2) without
+NaNs, emitting a merged, RL-updated, and distilled checkpoint with provenance.
+`DESIGN.md` remains the contract this reproduction is held to.
+
+Run the toy pipeline (the synthetic model registry is behind the `modelir`
+build tag):
+
+    go test -tags modelir ./...                       # all invariants, -race
+    go run  -tags modelir ./cmd/vibethinker-train -size 1.5b
+    go run  -tags modelir ./cmd/vibethinker-train -size 3b
+    go run  ./cmd/vibethinker-eval -mode pass1        # Pass@1 over a fake sampler
+    go run  ./cmd/vibethinker-eval -mode clr          # CLR reliability selection
+
+### Gates (not run locally; explicit seams with in-repo fakes)
+
+- **Teacher** (`teacher`) — multi-path traces, pseudo-labels, CLR claim
+  extraction/self-verification need a frontier model. Supply a real `Teacher`;
+  the in-repo `Fake` drives tests.
+- **Code sandbox** (`reward/sandbox`) — the local `ExecRunner` is fail-closed; a
+  real run supplies an isolated `Runner`.
+- **Rubric reward model** (`reward/rubric`) — a gated `Scorer` interface with a
+  fake; a real run supplies a judge model.
+- **Full-scale compute** — the multi-step weight optimizer (`TrainFullFineTune`)
+  and GPU-scale training are documented compute gates; the toy stages exercise
+  the loss graphs and every algorithmic transform, not a full optimizer loop.
+- **Original corpora** — datasets are pluggable `Loader`/`Synthesizer` seams.
 
 ## License
 
