@@ -50,4 +50,17 @@
 // exactly, and w_ME still multiplies the smoothed advantage — the no-op rule is
 // preserved. SAS composes with Dr.GRPO: it smooths whichever advantage
 // normalization the options select.
+//
+// [DynamicSample] is DAPO Dynamic Sampling (DESIGN_RL_UPGRADE.md §2 Tier 2): a
+// data-layer filter that drops prompt groups with accuracy 0 or 1 (zero
+// group-relative advantage) before the loss, unifying with the std=0 guard. It
+// only removes whole zero-gradient groups, so a retained group's advantage and
+// loss are unchanged.
+//
+// [LossFRPO] is the FRPO Future-KL sibling loss (DESIGN_RL_UPGRADE.md §2 Tier 3).
+// The substrate rl.GRPOLoss has no per-token injection point, so LossFRPO clones
+// its surrogate and adds a reverse-cumulative-sum future-KL term on the per-token
+// log-ratio. With a zero FRPOConfig it is bit-identical to rl.GRPOLoss;
+// [LossFRPOScaled] wires it to the w_ME-scaled advantage, preserving the no-op
+// rule.
 package mgpo
