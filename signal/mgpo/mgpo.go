@@ -36,6 +36,41 @@ func ScaledAdvantagesOpt(rewards [][]float64, lambda float64, opts Options) ([][
 	return scaledAdvantages(opts.groupAdvantage(rewards), rewards, lambda)
 }
 
+// ScaledAdvantagesStep is [ScaledAdvantagesOpt] with DCPO Smooth Advantage
+// Standardization (SAS, arXiv 2509.02333) applied at the advantage seam, between
+// the group-relative advantage and the w_ME scaling. It standardizes each
+// prompt's advantage over a cumulative history carried in stats, keyed by the
+// per-group prompt identifier in promptIDs (one per reward group).
+//
+// stats accumulates across the steps of a run: pass the same *PromptStats on
+// every step so the smoothing builds up. The first time a prompt is seen the
+// smoothed advantage equals the plain advantage, so the first step over a fresh
+// store is bit-identical to ScaledAdvantagesOpt — the documented zero-value
+// behavior. A nil stats disables SAS and is exactly ScaledAdvantagesOpt.
+//
+// w_ME is still multiplied onto the (smoothed) advantage, never the raw reward,
+// so the MGPO no-op rule holds under SAS just as under Dr.GRPO. lambda must be
+// ≥ 0 and len(promptIDs) must equal len(rewards) when stats is non-nil.
+func ScaledAdvantagesStep(rewards [][]float64, lambda float64, opts Options, stats *PromptStats, promptIDs []string) ([][]float64, error) {
+	if lambda < 0 {
+		return nil, fmt.Errorf("mgpo: lambda must be >= 0, got %v", lambda)
+	}
+	adv := opts.groupAdvantage(rewards)
+	if stats != nil {
+		if len(promptIDs) != len(rewards) {
+			return nil, fmt.Errorf("mgpo: %d prompt IDs but %d reward groups", len(promptIDs), len(rewards))
+		}
+		for i := range adv {
+			smoothed, err := stats.smooth(promptIDs[i], adv[i])
+			if err != nil {
+				return nil, err
+			}
+			adv[i] = smoothed
+		}
+	}
+	return scaledAdvantages(adv, rewards, lambda)
+}
+
 // scaledAdvantages applies the per-group weight to precomputed advantages. adv
 // and rewards must have the same group/rollout shape. It is the unexported core
 // that the tests target directly.

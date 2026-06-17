@@ -41,4 +41,13 @@
 // [ScaledAdvantagesOpt] and [LossOpt] to enable a refinement. Under either
 // advantage normalization w_ME still multiplies the advantage, never the raw
 // reward, so the no-op rule holds.
+//
+// [ScaledAdvantagesStep] adds DCPO Smooth Advantage Standardization (SAS,
+// DESIGN_RL_UPGRADE.md §2 Tier 2): it standardizes each prompt's advantage over
+// a cumulative per-prompt history carried in a [PromptStats] store across
+// training steps, picking the minimum-magnitude of two smoothed estimates. A nil
+// store (or the first visit of a fresh one) reproduces the plain advantage
+// exactly, and w_ME still multiplies the smoothed advantage — the no-op rule is
+// preserved. SAS composes with Dr.GRPO: it smooths whichever advantage
+// normalization the options select.
 package mgpo
