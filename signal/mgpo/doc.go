@@ -63,4 +63,13 @@
 // log-ratio. With a zero FRPOConfig it is bit-identical to rl.GRPOLoss;
 // [LossFRPOScaled] wires it to the w_ME-scaled advantage, preserving the no-op
 // rule.
+//
+// [HDPOLossTerm] is the HDPO cliff-JSD self-distillation (DESIGN_RL_UPGRADE.md §2
+// Tier 3): on the cliff set ([CliffSet], the zero-reward groups where the GRPO
+// gradient vanishes) it adds λ_JSD times the [JSD] between the policy and its own
+// privileged distribution (the same weights conditioned on the gold answer — no
+// external model). With LambdaJSD = 0, or on a batch with no cliff group, it adds
+// nothing. The term is a loss-side addition gated on the cliff set; it never
+// touches the advantage, so the no-op rule is untouched. The privileged-rollout
+// generation needs the model and lives behind the modelir build tag.
 package mgpo
