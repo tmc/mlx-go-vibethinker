@@ -58,3 +58,22 @@ func (o Options) applyClip(config rl.GRPOConfig) rl.GRPOConfig {
 	}
 	return config
 }
+
+// ClipRange returns the effective lower and upper clip epsilons these options
+// apply on top of config, resolving the same zero→ClipEps fallback that
+// rl.GRPOLoss uses internally. It lets a caller observe the clip range a method
+// will produce (e.g. to measure the clip-bind rate) without recomputing the
+// fallback by hand. The returned epsilons define the clip interval
+// [1−low, 1+high].
+func (o Options) ClipRange(config rl.GRPOConfig) (low, high float64) {
+	c := o.applyClip(config)
+	low = c.ClipEpsLow
+	if low == 0 {
+		low = c.ClipEps
+	}
+	high = c.ClipEpsHigh
+	if high == 0 {
+		high = c.ClipEps
+	}
+	return low, high
+}
