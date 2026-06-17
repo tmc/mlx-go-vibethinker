@@ -1,0 +1,3 @@
+# Local agent/workflow process residue — not module content.
+/.claude/
+/.workflow-*.js
