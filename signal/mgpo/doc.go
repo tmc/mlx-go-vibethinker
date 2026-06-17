@@ -33,4 +33,12 @@
 // advantages are then fed to the package-level rl.GRPOLoss, which takes
 // advantages as an explicit argument — unlike the GRPOEstimator methods, which
 // compute advantages internally and expose no injection point.
+//
+// [Options] selects two opt-in, scale-safe post-GRPO refinements
+// (DESIGN_RL_UPGRADE.md §2 Tier 1): Dr.GRPO advantage debiasing (drop the std
+// divisor) and DAPO Clip-Higher (asymmetric PPO clip). The zero Options is the
+// DESIGN.md baseline, so [ScaledAdvantages] and [Loss] are unchanged; use
+// [ScaledAdvantagesOpt] and [LossOpt] to enable a refinement. Under either
+// advantage normalization w_ME still multiplies the advantage, never the raw
+// reward, so the no-op rule holds.
 package mgpo
