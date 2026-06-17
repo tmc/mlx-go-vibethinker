@@ -72,4 +72,15 @@
 // nothing. The term is a loss-side addition gated on the cliff set; it never
 // touches the advantage, so the no-op rule is untouched. The privileged-rollout
 // generation needs the model and lives behind the modelir build tag.
+//
+// [DiversityReweight] is DRA-GRPO diversity-aware reward adjustment
+// (DESIGN_RL_UPGRADE.md §2 Tier 3): it divides each rollout's reward by its total
+// cosine similarity to its group siblings (before advantage normalization), so
+// crowded modes are down-weighted and exploration is preserved. The sentence
+// embedder is the only sanctioned external model and is the injected [Embedder]
+// interface, with an in-repo model-free [FakeEmbedder] — so this package builds
+// and tests with zero external dependencies. Identical rollouts give a uniform
+// divisor that cancels under group-relative advantage, so an identity embedder
+// is the baseline; the reweight feeds advantage exactly as raw rewards do, so
+// w_ME still multiplies the advantage and the no-op rule holds.
 package mgpo
