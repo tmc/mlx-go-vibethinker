@@ -118,25 +118,21 @@ func (m *Model) Encode(text string) ([]int32, error) {
 	return ids, nil
 }
 
-// systemPrompt nudges the base math model toward a short chain-of-thought that
-// ends in a \boxed{} answer mathverify can extract.
-const systemPrompt = "You are a helpful math assistant. Solve the problem and give the final answer inside \\boxed{}."
+// cotPreamble is the canonical Qwen2.5-Math chain-of-thought instruction. The
+// 1.5B here is the BASE (not instruct) model: the <|im_start|>assistant chat
+// template makes it ramble into degenerate loops (it was never SFT-tuned for that
+// format), but this plain CoT preamble — the format Qwen2.5-Math is documented to
+// use — makes it reason coherently and emit a \boxed{} answer mathverify can
+// extract. Verified empirically: under the chat template the base scores ~0% and
+// loops; under this preamble it solves single-step arithmetic greedily.
+const cotPreamble = "Please reason step by step, and put your final answer within \\boxed{}."
 
-// EncodePrompt formats a math question through the model's chat template (with a
-// math system prompt) and returns the prompt token ids ready for generation.
-// Qwen2.5-Math is trained with this format; the raw question alone makes the
-// base model ramble, so the smoke uses the template for coherent rollouts.
+// EncodePrompt formats a math question with the canonical Qwen2.5-Math CoT
+// preamble and returns the prompt token ids ready for generation. It does NOT use
+// the chat template: this is a base model, and the assistant-turn template makes
+// it ramble (see cotPreamble).
 func (m *Model) EncodePrompt(question string) ([]int32, error) {
-	msgs := []mlxlm.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: question},
-	}
-	ids, err := m.Tok.ApplyChatTemplate(msgs, true)
-	if err != nil {
-		// Fall back to a plain encode if the template is unavailable.
-		return m.Encode(question)
-	}
-	return ids, nil
+	return m.Encode(cotPreamble + "\n\n" + question)
 }
 
 // Decode renders token ids back to text.
