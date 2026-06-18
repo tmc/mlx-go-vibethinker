@@ -76,6 +76,12 @@ func Load(ctx context.Context, dir string) (*Model, error) {
 		return nil, fmt.Errorf("realmodel: load tokenizer from %q: %w", dir, err)
 	}
 
+	// We deliberately do NOT raise the wired limit to the device max: wiring the
+	// whole 1.5B model pins memory and starves the full-parameter backward
+	// (gradients + Adam moments), which OOMs. Let MLX manage residency; the
+	// per-process array ceiling on long rollouts is handled by closing KV caches
+	// and clearing the buffer cache between rollouts (see rollout.go).
+
 	return &Model{LM: lm, Tok: tok, Dir: dir, Tr: tr, vocab: tok.VocabSize()}, nil
 }
 
@@ -103,11 +109,32 @@ func (m *Model) Forward(ctx context.Context, ids []int32) (*mlx.Array, error) {
 	return logits, nil
 }
 
-// Encode tokenizes a prompt into model token ids.
+// Encode tokenizes a raw string into model token ids (no chat template).
 func (m *Model) Encode(text string) ([]int32, error) {
 	ids, err := m.Tok.Encode(text)
 	if err != nil {
 		return nil, fmt.Errorf("realmodel: encode: %w", err)
+	}
+	return ids, nil
+}
+
+// systemPrompt nudges the base math model toward a short chain-of-thought that
+// ends in a \boxed{} answer mathverify can extract.
+const systemPrompt = "You are a helpful math assistant. Solve the problem and give the final answer inside \\boxed{}."
+
+// EncodePrompt formats a math question through the model's chat template (with a
+// math system prompt) and returns the prompt token ids ready for generation.
+// Qwen2.5-Math is trained with this format; the raw question alone makes the
+// base model ramble, so the smoke uses the template for coherent rollouts.
+func (m *Model) EncodePrompt(question string) ([]int32, error) {
+	msgs := []mlxlm.Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: question},
+	}
+	ids, err := m.Tok.ApplyChatTemplate(msgs, true)
+	if err != nil {
+		// Fall back to a plain encode if the template is unavailable.
+		return m.Encode(question)
 	}
 	return ids, nil
 }
@@ -123,3 +150,15 @@ func (m *Model) Decode(ids []int32) (string, error) {
 
 // EOS is the tokenizer's end-of-sequence token id.
 func (m *Model) EOS() int32 { return m.Tok.EOSToken() }
+
+// Close drops the model's references and clears the Metal buffer cache so a
+// subsequent Load does not keep two multi-GB models resident (which OOMs). After
+// Close the model must not be used. It does NOT manually free param arrays — the
+// optimizer owns and frees the (possibly updated) weight arrays, so freeing them
+// here would double-free; dropping the references lets GC + ClearCache reclaim
+// them. The caller should runtime.GC() after Close to force finalization.
+func (m *Model) Close() {
+	m.LM = nil
+	m.Tr = nil
+	mlx.ClearCache()
+}
