@@ -1,3 +1,9 @@
 # Local agent/workflow process residue — not module content.
 /.claude/
 /.workflow-*.js
+
+# Real-model weights for the realmodel smoke test are multi-GB HF exports kept
+# outside the repo (~/models-tmp by default); never commit model artifacts.
+/models-tmp/
+*.safetensors
+
