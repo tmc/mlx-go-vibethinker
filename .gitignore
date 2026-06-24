@@ -7,3 +7,9 @@
 /models-tmp/
 *.safetensors
 
+# Built command binaries: go build ./cmd/<name> drops them at the repo root.
+/vibethinker-eval
+/vibethinker-methodcompare
+/vibethinker-realmodel
+/vibethinker-train
+
