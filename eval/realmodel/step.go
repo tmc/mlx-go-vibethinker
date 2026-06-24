@@ -180,6 +180,35 @@ func (t *trainer) step() (float64, error) {
 	return float64(v), nil
 }
 
+// commitDurable writes model-owned deep copies of the optimizer's current params
+// back into the model, so the model no longer aliases arrays the optimizer owns.
+// It MUST be called before free() whenever the model is forwarded again after
+// training: SeparateVGAndOptimizer.Free frees s.Params, and those Params are the
+// exact arrays the trainer wrote into the model's q/v slots — so without this
+// detach the next Forward dereferences freed weights (panic: b is nil). The
+// per-method Evaluate paths reload a fresh model and never forward post-train, so
+// they do not need it; the sweep, which scores held-out on the trained policy,
+// does.
+func (t *trainer) commitDurable() error {
+	params := t.opt.GetParams()
+	if len(params) != len(t.slots) {
+		return fmt.Errorf("realmodel: commitDurable param/slot mismatch %d != %d", len(params), len(t.slots))
+	}
+	copies := make([]*mlx.Array, len(params))
+	for i, p := range params {
+		copies[i] = mlx.Copy(p)
+	}
+	if err := mlx.Eval(copies...); err != nil {
+		return fmt.Errorf("realmodel: commitDurable eval: %w", err)
+	}
+	for i, s := range t.slots {
+		if err := s.set(copies[i]); err != nil {
+			return fmt.Errorf("realmodel: commitDurable set %s: %w", s.path, err)
+		}
+	}
+	return nil
+}
+
 // free releases the optimizer resources.
 func (t *trainer) free() {
 	if t.opt != nil {

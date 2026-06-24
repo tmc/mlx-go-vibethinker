@@ -296,8 +296,8 @@ func reclaim() {
 //
 // The model is reloaded fresh per method by the caller so each method starts
 // from the same base policy (the optimizer mutates the weights in place).
-func runMethod(ctx context.Context, m *Model, method Method, cfg Config, groups []group) (Metrics, error) {
-	mt := Metrics{Method: method.Name}
+func runMethod(ctx context.Context, m *Model, method Method, cfg Config, groups []group) (mt Metrics, err error) {
+	mt = Metrics{Method: method.Name}
 	start := time.Now()
 
 	if len(groups) == 0 {
@@ -331,6 +331,19 @@ func runMethod(ctx context.Context, m *Model, method Method, cfg Config, groups 
 		return mt, err
 	}
 	defer tr.free()
+	// Detach the trained weights into model-owned copies BEFORE tr.free() frees the
+	// optimizer's params (which are the very arrays written into the model's q/v
+	// slots). This deferred call runs first (LIFO), so any post-train Forward — the
+	// sweep's final held-out pass — sees live weights, not freed ones. On the
+	// fresh-model-per-method Evaluate paths the model is discarded right after, so
+	// the only cost is one cheap q/v deep-copy. A detach failure becomes the
+	// function's error (only when the primary path succeeded, so a real run error
+	// is not masked).
+	defer func() {
+		if cerr := tr.commitDurable(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	lossClosure = func() (*mlx.Array, error) {
 		// `current` from the LIVE weights (the trainer wrote params into the model
