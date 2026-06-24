@@ -10,10 +10,11 @@ import (
 // heldoutProbeMaxTokens bounds the greedy decode in the probe and the sweep. The
 // base Qwen2.5-Math is VERBOSE: it emits a multi-step rationale before the
 // \boxed{} answer, so too tight a budget truncates correct reasoning before the
-// boxed result and undercounts accuracy. 320 lets the CoT complete on this
-// short-horizon set while staying well under the Metal array ceiling (the held-
-// out pass decodes greedily and is run at only a few policy states, not every
-// step, so the cost is bounded).
+// boxed result and undercounts accuracy. 80 lets the CoT complete on this
+// short-horizon set while staying well under the Metal array ceiling: the
+// no-cache greedy decode is O(n²) and its live Metal arrays are not reclaimable
+// in-process (see generateGreedy), so the cap plus the \boxed{} early-stop keeps
+// a full step-0+final held-out pass inside one config's subprocess.
 const heldoutProbeMaxTokens = 80
 
 // TestHeldoutStep0BaselineHasDynamicRange is the CKPT-A gate: it measures the
