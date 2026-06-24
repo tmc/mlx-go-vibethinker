@@ -45,6 +45,16 @@ type opts struct {
 	// ~13GB value-and-grad graph from accumulating across methods.
 	oneMethod int
 	source    string
+
+	// Sweep mode: the differential training sweep (C1..C5) ranked by held-out
+	// Avg@1 Δacc. -sweep runs the parent that drives a TWO-process split per
+	// config (P1 score@0+train+checkpoint, P2 apply+score@final); -sweep-phase
+	// {1,2} with -sweep-config and -ckpt is the per-phase child the parent spawns.
+	sweep       bool
+	sweepPhase  int
+	sweepConfig int
+	ckpt        string
+	seeds       string // parent: comma-separated baseline seeds for the noise floor
 }
 
 func main() {
@@ -58,6 +68,11 @@ func main() {
 	flag.Uint64Var(&o.seed, "seed", 1, "rollout RNG seed")
 	flag.IntVar(&o.oneMethod, "one-method", -1, "child mode: run only this registry method index and print one JSON row (internal)")
 	flag.StringVar(&o.source, "source", "", "child mode: rollout source for -one-method (organic|seeded) (internal)")
+	flag.BoolVar(&o.sweep, "sweep", false, "run the differential training sweep (C1..C5) ranked by held-out Avg@1 Δacc (two-process split)")
+	flag.IntVar(&o.sweepPhase, "sweep-phase", 0, "child mode: sweep phase 1 (score@0+train+checkpoint) or 2 (apply+score@final) (internal)")
+	flag.IntVar(&o.sweepConfig, "sweep-config", -1, "child mode: swept config index C1..C5 for -sweep-phase (internal)")
+	flag.StringVar(&o.ckpt, "ckpt", "", "child mode: trained-q/v checkpoint path written by phase 1 / read by phase 2 (internal)")
+	flag.StringVar(&o.seeds, "seeds", "", "sweep parent: comma-separated baseline (C1) seeds for the >=2-seed noise floor (e.g. 1,2,3)")
 	flag.Parse()
 
 	if err := run(o); err != nil {

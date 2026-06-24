@@ -14,9 +14,16 @@ import (
 	"github.com/tmc/mlx-go-vibethinker/eval/realmodel"
 )
 
-// run dispatches to the child (single-method) path when -one-method is set,
-// otherwise the parent orchestrator that spawns one child per (method × source).
+// run dispatches to the right entry: a sweep phase child (-sweep-phase), the
+// sweep parent (-sweep), a single-method child (-one-method), or the
+// method-comparison parent.
 func run(o opts) error {
+	if o.sweepPhase != 0 {
+		return runSweepPhaseChild(o)
+	}
+	if o.sweep {
+		return runSweepParent(o)
+	}
 	if o.oneMethod >= 0 {
 		return runChild(o)
 	}
