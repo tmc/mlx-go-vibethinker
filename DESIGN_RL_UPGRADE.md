@@ -1,10 +1,23 @@
 # DESIGN: Post-GRPO RL upgrades for the VibeThinker pipeline
 
-Status: proposal (no code yet). Companion to [`DESIGN.md`](./DESIGN.md), which is
-the binding contract for the baseline reproduction. This document proposes how to
-make the **Signal** (RL) phase train *more effectively* by adopting verified
+Status: implemented. Companion to [`DESIGN.md`](./DESIGN.md), which is the binding
+contract for the baseline reproduction. This document is the design rationale for
+making the **Signal** (RL) phase train *more effectively* by adopting verified
 better-than-GRPO methods from 2025–2026, ranked for the **1.5B/3B** scale this
 project actually targets.
+
+Every method below is implemented and tested in [`signal/mgpo`](./signal/mgpo)
+(each with an off-path bit-identical-to-baseline property test), exercised on the
+toy substrate by [`eval/methodcompare`](./eval/methodcompare), and on the real
+Qwen2.5-Math-1.5B by [`eval/realmodel`](./eval/realmodel) — whose two-process
+C1..C5 differential sweep (the **compound ladder**, not the full method registry:
+C1 baseline, C2 Tier-1, C3 DCPO-SAS, C4 HDPO, C5 composed) ranks them by held-out
+Δacc. See [`eval/realmodel/README.md`](./eval/realmodel/README.md). At the
+single-M4-Max smoke floor (N=12) the methods are **INDISTINGUISHABLE** on held-out
+Δacc and default to C1, while the mechanism stats separate the configs — a
+directional finding, not a benchmark result. The "Do NOT adopt" set
+(SDPO/SRPO/QAE/GSPO/GMPO/VAPO) is excluded, as are FRPO/DRA/Dynamic-Sampling from
+the C1..C5 ladder; those three exist as gated flags only.
 
 The baseline RL is MGPO (GRPO + a max-entropy advantage weight `w_ME`), Long2Short
 length shaping, and multi-domain sequential RL. The seam is the package-level
